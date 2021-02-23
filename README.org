@@ -1,0 +1,454 @@
+# Created 2021-02-23 Tue 21:57
+#+TITLE: Learn with me: You Could Have Invented Monads!
+#+AUTHOR: Benjamin Piper
+#+export_file_name: README
+
+#+property: header-args :noweb yes :results output :cache yes
+
+* Before we begin
+
+This document is inspired by Tania Rascia's website where she [[https://www.taniarascia.com/learn][learns in public]]. 
+
+There are already a plethora of monad tutorials out there. After lots of digging I found the old article [[http://blog.sigfpe.com/2006/08/you-could-have-invented-monads-and.html][You Could Have Invented Monads! (And Maybe You Already Have.)]] by sigfpe.
+
+This document is written from the perspective of me reading sigfpe's article, giving commentary and structuring my learning with reasoning and code examples. Sigfpe uses Haskell to write their examples; I'll be using JavaScript.
+
+Feel free to give me any constructive feedback :)
+
+* Debug-Functions
+
+I'm not a fan of single-letter function names, even if they're for didactic purposes. Though I don't shy away from single-letter /parameter/ names, as long as the function is trivial.
+
+In this section I'll replace ~f,g~ with ~add5, square~. They'll look like this:
+
+#+name: non-debug-fns
+#+begin_src js
+  const add5 = x => x + 5;
+  const square = x => Math.pow(x,2);
+#+end_src
+
+In sigfpe's next example they use a ~(Float, String)~ tuple. Unfortunately, JavaScript does not have tuples so I've opted to use literal objects instead (these objects could easily be substituted for arrays).
+
+#+begin_src js
+  const debugAdd5 = x => ({value: x + 5, message: `${x} + 5 = ${x + 5}.`});
+  const debugSquare = x => ({value : Math.pow(x,2), message: `${x}^2 = ${Math.pow(x,2)}.`});
+  console.log(debugAdd5(7));
+  console.log(debugSquare(7));
+#+end_src
+
+#+results[fc03f513eb3ba8836526ba1154d1d106e6cec87c]: 
+: { value: 12, message: '7 + 5 = 12.' }
+: { value: 49, message: '7^2 = 49.' }
+
+
+Now what we want is for the value to be composed /and/ the message attribute to get concatenated with each function call.
+
+But we can't compose these functions anymore! We need a special way of making sure all following functions can receive this value-message object. Sigfpe has called this ~bind~, the other names for it that I've seen are ~chain~ and ~flatMap~.
+
+** Exercise 1: Write the function bind
+
+#+begin_src js
+  const debugBind = debugFn => ({value: previousValue, message: previousMessage}) => {
+      const {value: nextValue, message: nextMessage} = debugFn(previousValue);
+      return {value: nextValue, message: previousMessage + nextMessage};
+  }
+
+  const debugAdd5 = x => ({value: x + 5, message: `${x} + 5 = ${x + 5}.`});
+  const debugSquare = x => ({value : Math.pow(x,2), message: `${x}^2 = ${Math.pow(x,2)}.`});
+
+  console.log(debugBind(debugSquare)(debugAdd5(7)));
+#+end_src
+
+#+results[e9626113d29cb88613c9261fa1dcd56c5f204404]: 
+: { value: 144, message: '7 + 5 = 12.12^2 = 144.' }
+
+
+Pretty neat, huh? It will look even cleaner if we use a composing function.
+
+#+begin_src js
+  const debugBind = debugFn => ({value: previousValue, message: previousMessage}) => {
+      const {value: nextValue, message: nextMessage} = debugFn(previousValue);
+      return {value: nextValue, message: previousMessage + nextMessage};
+  }
+
+  const composeValueMessage = (...valueMessages) => initial =>
+      valueMessages.reduceRight((accumulator, nextFn) => 
+      debugBind(nextFn)(accumulator), {value: initial, message: ""});
+
+  const debugAdd5 = x => ({value: x + 5, message: `${x} + 5 = ${x + 5}.`});
+  const debugSquare = x => ({value : Math.pow(x,2), message: `${x}^2 = ${Math.pow(x,2)}.`});
+
+  const calculation = composeValueMessage(debugAdd5, debugSquare, debugAdd5, debugSquare);
+  console.log(calculation(20));
+#+end_src
+
+#+results[1542ba6bfffcc8c67057f064b7c9b312fd53246d]: 
+: {
+:   value: 164030,
+:   message: '20^2 = 400.400 + 5 = 405.405^2 = 164025.164025 + 5 = 164030.'
+: }
+
+
+If that compose function looks scary, be sure to check out [[https://github.com/Benjamin-Piper/leap-year#compose][this document]] where I explain it. The difference here is that compose does the heavy-lifting for us by binding each function.
+
+Just be sure to remember that the initial value passed into the reducer matches how the bind operates. E.g., in the above code we passed an initial value-message object to be fed into the bound functions.
+
+-----
+
+Sigfpe then goes on to talk about identity functions. To be truthful, I didn't really know why they mattered until I read mican's comment on the stack overflow article: [[https://stackoverflow.com/questions/7108835/what-is-the-practical-use-of-the-identity-function-in-r][What is the practical use of the identity function in R?]].
+
+Basically, when you're transforming data, it's good to know that there are cases when data will remain the same. Like checking that anything multiplied by 1 will be itself.
+
+The identity function that is desired here is called ~unit~.
+
+** Exercise 2: Define unit
+
+This definition is essentially the same as what we did to the initial value in ~composeValueMessage~.
+
+#+name: unit-debug-fn
+#+begin_src js
+  const debugUnit = x => ({value: x, message: ""});
+#+end_src
+
+We can also do the same things to functions. The metaphor used is 'lifting' a function into a debuggable one.
+
+#+name: lift-debug-fn
+#+begin_src js
+  const debugLift = fn => x => ({value: fn(x), message: ""});
+#+end_src
+
+Because this takes any function, I've made the message generic.
+
+** Exercise 3: Show that ~lift f * lift g = lift (f.g)~
+
+I've written the original problem up because this uses the Haskell notation of ~.~ and ~*~.
+
+- ~f . g~ represents standard composition (without binding). E.g. ~f(g(x))~
+- ~f * g~ represents ~bind(f) . g~ (as mentioned in the article)
+
+With this clarification, the JavaScript equivalent becomes this:
+
+Show that ~compose(bind(lift(add5)), lift(square)) = lift(compose(add5, square))~
+
+I've used ~compose~ instead of ~composeValueMessage~ here because this time we're lifting functions, /not/ binding them.
+
+#+begin_src js
+  const debugBind = debugFn => ({value: previousValue, message: previousMessage}) => {
+      const {value: nextValue, message: nextMessage} = debugFn(previousValue);
+      return {value: nextValue, message: previousMessage + nextMessage};
+  }
+
+  const compose = (...fns) => initial =>
+      fns.reduceRight((accumulator, nextFn) =>
+      nextFn(accumulator), initial);
+
+  const debugLift = fn => x => ({value: fn(x), message: ""});
+
+  const add5 = x => x + 5;
+  const square = x => Math.pow(x,2);
+
+  const leftHandSide = compose(debugBind(debugLift(add5)), debugLift(square));
+  const rightHandSide = debugLift(compose(add5, square));
+
+  const test = 11;
+  console.log(leftHandSide(test).value === rightHandSide(test).value);
+  console.log(leftHandSide(test).message === rightHandSide(test).message);
+#+end_src
+
+#+results[5aa345b3868a895a42146374c009752b7784f9eb]: 
+: true
+: true
+
+
+It's pretty awesome that we're able to do composition again, we've obtained another tool to use on the job!
+
+So at this point sigfpe says how we've just made our first monad. This isn't the first monad article I've read so I was able to pick up on this, however this statement helped me fully understand what Eric Elliott was saying about monads in [[https://medium.com/javascript-scene/javascript-monads-made-simple-7856be57bfe8][his article]].
+
+#+begin_quote
+A monad is based on a simple symmetry — A way to wrap a value into a context, and a way to unwrap the value from the context:
+#+end_quote
+
+* Multivalue-Functions
+
+JavaScript has the functions ~Math.sqrt~ and ~Math.cbrt~. However, these only return a single number. Returning two square roots is fine (as long as we have real numbers), but as soon as we want to get three cube roots we have to apply De Moivre's theorem. 
+
+To keep things easy and executable we'll be using the two functions ~digitList~ and ~first3Multiples~.
+
+#+begin_src js
+  const not = boolFn => x => !boolFn(x);
+  const digitList = number => {
+      return number.toString().split("").filter(not(isNaN)).map(x => Number.parseInt(x));
+  }
+
+  console.log(digitList(-234.82342));
+#+end_src
+
+#+results[6b631a221e02ae94b5e5a83a58bb3e4f8d009c65]: 
+: [
+:   2, 3, 4, 8,
+:   2, 3, 4, 2
+: ]
+
+
+#+begin_src js
+  const first3Multiples = x => [x, x * 2, x * 3];
+  console.log(first3Multiples(8));
+#+end_src
+
+#+results[d7b6c724531471c87ed34b72bd9448c8c9aa13d1]: 
+: [ 8, 16, 24 ]
+
+
+What we have here are two functions that take a single number as input and return arrays. Looks like we'll need to ~bind~ again if we want to compose these functions.
+
+** Exercise 4: Write an implementation of bind
+
+#+begin_src js
+  const multiValueBind = multiValueFn => array => array.map(multiValueFn).flat();
+
+  const not = boolFn => x => !boolFn(x);
+  const digitList = number => {
+      return number.toString().split("").filter(not(isNaN)).map(x => Number.parseInt(x));
+  }
+
+  const first3Multiples = x => [x, x * 2, x * 3];
+
+  console.log(multiValueBind(first3Multiples)(digitList(-2.9)));
+#+end_src
+
+#+results[70d4971aa3e113ce904e0cd2867c27bf3921fb1f]: 
+: [ 2, 4, 6, 9, 18, 27 ]
+
+
+With our knowledge from last time, let's wait for the unit function before we make things cleaner with the compose function.
+
+** Exercise 5: Define unit
+
+So sigfpe asks for the unit function again, and essentially we take a single value and put it in a multi-value container (an array in this case).
+
+#+name: unit-multi-value-fn
+#+begin_src js
+  const multiValueUnit = x => [x];
+#+end_src
+
+Now composing looks like this:
+
+#+begin_src js
+  const multiValueBind = multiValueFn => array => array.map(multiValueFn).flat();
+
+  const multiValueUnit = x => [x];
+
+  const composeMultiValue = (...multiValueFns) => initial =>
+      multiValueFns.reduceRight((accumulator, nextFn) =>
+      multiValueBind(nextFn)(accumulator), multiValueUnit(initial));
+
+  const not = boolFn => x => !boolFn(x);
+  const digitList = number => {
+      return number.toString().split("").filter(not(isNaN)).map(x => Number.parseInt(x));
+  }
+
+  const first3Multiples = x => [x, x * 2, x * 3];
+
+  const reallyBigListMaker = composeMultiValue(digitList, first3Multiples, digitList);
+  console.log(reallyBigListMaker(28));
+#+end_src
+
+#+results[a163438e9c69a62160e257acc0e5a88db1e61987]: 
+: [
+:   2, 4, 6, 8,
+:   1, 6, 2, 4
+: ]
+
+
+Nice!
+
+Let's quickly define ~lift~ and then prove that ~lift f = unit . f~, that is, ~lift(add5) = compose(unit, add5)~.
+
+#+begin_src js
+  const add5 = x => x + 5;
+  const multiValueLift = multiValueFn => x => [multiValueFn(x)];
+  const multiValueUnit = x => [x];
+
+  const compose = (...fns) => initial =>
+      fns.reduceRight((accumulator, nextFn) =>
+      nextFn(accumulator), initial);
+
+  const leftHandSide = multiValueLift(add5);
+  const rightHandSide = compose(multiValueUnit, add5);
+
+  const test = 11;
+  console.log(leftHandSide(test)[0] === rightHandSide(test)[0]);
+#+end_src
+
+#+results[559359073dd8401aa21162179dc6b78a186e44eb]: 
+: true
+
+** Exercise 6: Show that ~f * unit = unit * f = f~ and ~lift f * lift g = lift (f.g)~
+
+As with before, we're using the normal ~compose~ so that nothing is done behind the scenes. The unit equality translates to:
+
+~compose(bind(add5), unit) = compose(bind(unit), add5) = lift(add5)~
+
+#+begin_src js
+  const multiValueBind = multiValueFn => array => array.map(multiValueFn).flat();
+  const multiValueLift = multiValueFn => x => [multiValueFn(x)];
+  const multiValueUnit = x => [x];
+
+  const first3Multiples = x => [x, x * 2, x * 3];
+
+  const compose = (...fns) => initial =>
+      fns.reduceRight((accumulator, nextFn) =>
+      nextFn(accumulator), initial);
+
+  const leftHandSide = compose(multiValueBind(first3Multiples), multiValueUnit);
+  const middle = compose(multiValueBind(multiValueUnit), first3Multiples);
+  const rightHandSide = first3Multiples;
+
+  const test = 11;
+  const expected = [11, 22, 33];
+
+  const allSidesEqual = [leftHandSide(test), middle(test), rightHandSide(test)]
+      .every(outputArray => outputArray
+      .every((element, index) => element === expected[index]));
+  console.log(allSidesEqual);
+#+end_src
+
+#+results[ad460f78ebf9e90bd6aa1c5f81a18022d594b723]: 
+: true
+
+
+Then the lift equality: ~compose(bind(lift(add5)), lift(square)) = lift(compose(add5, square))~
+
+#+begin_src js
+  const multiValueBind = multiValueFn => array => array.map(multiValueFn).flat();
+  const multiValueLift = multiValueFn => x => [multiValueFn(x)];
+
+  const add5 = x => x + 5;
+  const square = x => Math.pow(x,2);
+
+  const compose = (...fns) => initial =>
+      fns.reduceRight((accumulator, nextFn) =>
+      nextFn(accumulator), initial);
+
+  const leftHandSide = compose(multiValueBind(multiValueLift(add5)), multiValueLift(square));
+  const rightHandSide = multiValueLift(compose(add5, square));
+
+  const test = 11;
+  const expected = 126;
+
+  console.log(leftHandSide(test)[0] === expected);
+  console.log(rightHandSide(test)[0] === expected);
+#+end_src
+
+#+results[0248c3e7c2c8d4b2d195fe5761d75b78c84efc5f]: 
+: true
+: true
+
+
+In my opinion, the reasoning behind this example was easier as JavaScript deals with Arrays a /lot/. And that the ~bind~ function here looks a lot like ~flatMap~.
+
+* RNG-Functions
+
+It's at this point that I got confused. It's made worse because JavaScript doesn't have a seeded random function. (Yes, I know there's ~seedrandom~, but I'd like to do this in vanilla JavaScript).
+
+Paraphrasing sigfpe, the main idea is here:
+
+#+begin_quote
+A randomised function takes some ~x~ and returns a function that takes a seed and returns an updated seed and a value.
+#+end_quote
+
+Looking at the bind function that sigfpe defines we see that two functions ~f, x~ and a seed are passed as input which returns returns an updated seed and a value. An anonymous commenter clarified this with this signature:
+
+#+begin_src txt
+  bind :: (a -> stdgen -> (b, stdgen)) {inputted function f}
+  	-> (stdgen -> (a, stdgen))  {inputted function x}
+  	  -> stdgen  {inputted seed}
+  	    -> (b, stdgen)  {returned fucntion output}
+#+end_src
+
+So because of:
+
+- Vanilla JavaScript's lack of random seeding
+- The JavaScript compose-by-reduceRight method not being able to reference the previous element
+- My own general confusion about this complex example
+
+We're going to move on.
+
+If anyone who reads this understands how they can translate sigfpe's example to JavaScript, please let me know.
+
+* The bigger picture
+
+The examples that we've gone through together are:
+
+- Debuggable: ~any => {value: any, message: String}~
+- Multivalued: ~any => [any]~
+
+Now comes the abstraction. By using an arbitrary letter ~m~ to represent these examples we see that each of them are different scenarios of solving the same problem. That is:
+
+- Composing functions of type ~any => m(any)~.
+- Upgrading normal functions with ~lift~
+- Upgrading normal values with ~unit~
+
+And each time we proved  equalities, we were proving the monad laws.
+
+1. Left identity: ~compose(bind(unit), monadFn) === monadFn~
+2. Right identity: ~compose(bind(monadFn), unit) === monadFn~
+3. Associativity: ~compose(bind(lift(monadFn1)), lift(monadFn2)) === lift(compose(monadFn1, monadFn2))~
+
+Feel free to draw your own analgoy if it helps you encapsulate the ideas that we have learned.
+
+Oh and I've skipped the other sections. Even *Input/Output*, since JavaScript is not a lazy pure functional language.
+
+* My thoughts
+
+I really like sigfpe's explanation as it follows the simple approach of concrete examples, hints of patterns and then exercises.
+
+No analogy is shoehorned in.
+
+The only downside being that I don't really understand the last example with randomised functions.
+* The source code
+
+Here's all the source code without any of the ~console.log~ statements or the proof statements. It can also be found at ~monad_exploration.js~.
+
+#+begin_src js
+  const compose = (...fns) => initial =>
+      fns.reduceRight((accumulator, nextFn) =>
+      nextFn(accumulator), initial);
+
+  // -----------------------------------
+
+  const debugBind = debugFn => ({value: previousValue, message: previousMessage}) => {
+      const {value: nextValue, message: nextMessage} = debugFn(previousValue);
+      return {value: nextValue, message: previousMessage + nextMessage};
+  }
+
+  const composeValueMessage = (...valueMessages) => initial =>
+      valueMessages.reduceRight((accumulator, nextFn) => 
+      debugBind(nextFn)(accumulator), {value: initial, message: ""});
+
+  const debugAdd5 = x => ({value: x + 5, message: `${x} + 5 = ${x + 5}.`});
+  const debugSquare = x => ({value : Math.pow(x,2), message: `${x}^2 = ${Math.pow(x,2)}.`});
+
+  const debugLift = fn => x => ({value: fn(x), message: ""});
+
+  const debugUnit = x => ({value: x, message: ""});
+
+  // -----------------------------------
+
+  const multiValueBind = multiValueFn => array => array.map(multiValueFn).flat();
+
+  const multiValueUnit = x => [x];
+
+  const composeMultiValue = (...multiValueFns) => initial =>
+      multiValueFns.reduceRight((accumulator, nextFn) =>
+      multiValueBind(nextFn)(accumulator), multiValueUnit(initial));
+
+  const not = boolFn => x => !boolFn(x);
+  const digitList = number => {
+      return number.toString().split("").filter(not(isNaN)).map(x => Number.parseInt(x));
+  }
+
+  const first3Multiples = x => [x, x * 2, x * 3];
+
+  const multiValueLift = multiValueFn => x => [multiValueFn(x)];
+#+end_src
